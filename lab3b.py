@@ -36,40 +36,40 @@ class SuperBlock:
 #Inode
 class Inode:
     def __init__(self, row):
-        self.inode_no = int(row[1])
-        self.file_type = int(row[2])
-        self.mode = int(row[3])
-        self.owner = int(row[4])
-        self.group = int(row[5])
-        self.link_count = int(row[6])
-        self.ctime = int(row[7])
-        self.mtime = int(row[8])
-        self.atime = int(row[9])
-        self.size = int(row[10])
-        self.n_blocks = int(row[11])
+        self.inode_no = int(row[1],16)
+        self.file_type = int(row[2],16)
+        self.mode = int(row[3],16)
+        self.owner = int(row[4],16)
+        self.group = int(row[5],16)
+        self.link_count = int(row[6],16)
+        #self.ctime = int(row[7],16)
+        #self.mtime = int(row[8],16)
+        #self.atime = int(row[9],16)
+        self.size = int(row[10],16)
+        self.n_blocks = int(row[11],16)
         self.blocks = map(int, row[12:24])
-        self.single_ind = int(row[24])
-        self.double_ind = int(row[25])
-        self.triple_ind = int(row[26])
+        self.single_ind = int(row[24],16)
+        self.double_ind = int(row[25],16)
+        self.triple_ind = int(row[26],16)
 
 
 #Indirect
 class Indirect:
     def __init__(self, row):
-        self.inode_no = int(row[1])
-        self.level = int(row[2])
-        self.offset = int(row[3])
-        self.block_no = int(row[4])
-        self.reference_no = int(row[5])
+        self.inode_no = int(row[1],16)
+        self.level = int(row[2],16)
+        self.offset = int(row[3],16)
+        self.block_no = int(row[4],16)
+        self.reference_no = int(row[5],16)
 
 #Dirent
 class Dirent:
     def __init__(self, row):
-        self.parent_inode = int(row[1])
-        self.size = int(row[2])
-        self.entry_inode_num = int(row[3])
-        self.entry_rec_len = int(row[4])
-        self.entry_name_len = int(row[5])
+        self.parent_inode = int(row[1],16)
+        self.size = int(row[2],16)
+        self.entry_inode_num = int(row[3],16)
+        self.entry_rec_len = int(row[4],16)
+        self.entry_name_len = int(row[5],16)
         self.entry_file_name = row[6].rstrip()
 
 #Print error message
