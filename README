@@ -1,0 +1,12 @@
+NAME: Kuan Xiang Wen, Amir Saad
+EMAIL: kuanxw@g.ucla.edu, arsaad@g.ucla.edu
+ID: 004461554, 604840359
+
+==================================================================
+
+Files:
+lab3b.py - Main metadata checking program
+README - This file
+Makefile - Makefile with default, dist, clean (and check for own use)
+
+==================================================================
