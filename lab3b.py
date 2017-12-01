@@ -38,7 +38,6 @@ class SuperBlock:
 class Inode:
     def __init__(self, row):
         self.inode_no = int(row[1])
-        print("Inode caught: {}".format(self.inode_no))
         self.file_type = row[2].rstrip()
         #self.mode = int(row[3])
         #self.owner = int(row[4])
@@ -49,11 +48,10 @@ class Inode:
         #self.atime = int(row[9])
         #self.size = int(row[10)
         self.n_blocks = int(row[11])
-        self.blocks = list(map(int, row[12:23]))
+        self.blocks = list(map(int, row[12:24]))
         self.single_ind = int(row[24])
         self.double_ind = int(row[25])
         self.triple_ind = int(row[26])
-
 
 #Indirect
 class Indirect:
@@ -173,45 +171,64 @@ def valid_block_check(level, blocknum, inode, offset):
     elif blocknum < sb.first_inode:
         print("RESERVED {}BLOCK {} IN INODE {} AT OFFSET {}".format(level, blocknum, inode, offset))
     else:
+        #Valid block, log it. Don't do anything if pointing to inode. Otherwise, add a pointer entry
+        if blocknum < sb.n_inodes + 1:
+            return
         if pointer_counter[blocknum] == -1:
-            pointer_counter[blocknum] = [inode,level,offset]
+            pointer_counter[blocknum] = [[inode,level,offset]]
         else:
             pointer_counter[blocknum].append([inode,level,offset])
 
 def audit_summary():
+    #Tracks all pointers to each block. eg. pointers to block 76 stored in pointer_counter[76]
+    #Value: -1 if no pointer, a list of lists otherwise, where each list stores:
+    #[inode with pointer, indirection level of that inode, offset of the block]
+    #For inodes, just stores its file type
+    global pointer_counter
     pointer_counter = [-1]*sb.n_blocks
-
-    #check direct blocks
+    
+    #check direct blocks. Also add inode allocation to pointer_counter
     for inode in inodes:
-        print("Inode no: {}".format(inode.inode_no))
         for blocknum in inode.blocks:
-            print("Blocknum: {}".format(blocknum))
             valid_block_check(level_string[0], blocknum, inode.inode_no, 0)
+        valid_block_check(level_string[1],inode.single_ind, inode.inode_no, 12)
+        valid_block_check(level_string[2],inode.double_ind, inode.inode_no, 268)
+        valid_block_check(level_string[3],inode.triple_ind, inode.inode_no, 65804)
+        pointer_counter[inode.inode_no] = inode.file_type
     
     #check indirect blocks
     for indirect in indirects:
         valid_block_check(level_string[indirect.level], indirect.reference_no, indirect.inode_no, indirect.offset)
     
-    #add free blocks and inodes while checking for allocated free blocks/inodes
+    #add free blocks and inodes while checking for allocated free blocks
     for free_block in free_blocks:
         if(pointer_counter[free_block] == -1):
             pointer_counter[free_block] = 0
         else:
             for item in pointer_counter[free_block]:
                 print("ALLOCATED BLOCK {} ON FREELIST".format(item[0]))
-    for free_inode in free_inodes:
-        if(pointer_counter[free_inode] == -1):
-            pointer_counter[free_inode] = 0
+                
+    #add free inodes to list while checking for allocated free inodes
+    for inodenum in free_inodes:
+        if(pointer_counter[inodenum] == -1):
+            pointer_counter[inodenum] = 0
         else:
-            for item in pointer_counter[free_inode]:
-                print("ALLOCATED INODE {} ON FREELIST".format(item[0]))
+            print("ALLOCATED INODE {} ON FREELIST".format(inodenum))
     
-    #check for unreferenced items and dubplicates
-    for blocknum in pointer_counter:
-        if(blocknum == -1):
+    #check for unreferenced and duplicate blocks, and unallocated inodes
+    #could be optimized
+    for blocknum,blockentries in enumerate(pointer_counter):
+        #inodes
+        if(blocknum < sb.n_inodes + 1 and blocknum > sb.first_inode - 1 and blockentries == -1):
+            print("UNALLOCATED INODE {} NOT ON FREELIST".format(blocknum))
+        #skip if 1) block is correctly free 2) this is a reserved inode
+        elif(blockentries == 0 or blocknum < sb.first_inode):
+            continue
+        #blocks
+        elif(blockentries == -1):
             print("UNREFERENCED BLOCK {}".format(blocknum))
-        elif len(pointer_counter[blocknum]) > 1:
-            for item in pointer_counter[blocknum]:
+        elif len(blockentries) > 1:
+            for item in blockentries:
                 print("DUPLICATE {}BLOCK {} IN INODE {} AT OFFSET {}".format(item[0], pointer_counter.index(pointer_counter[blocknum]), item[2], item[2]))
     
 # #Audit inodes
