@@ -18,6 +18,7 @@ pointer_counter = []
 
 unallocated_inode_nos = []
 allocated_inodes = []
+reserved_blocks_end = -1
 
 errors = 0
 
@@ -79,7 +80,7 @@ def print_error(message):
 
 
 def parse_csv(file):
-    global sb, free_blocks, free_inodes, inodes, indirects
+    global sb, reserved_blocks_end, free_blocks, free_inodes, inodes, indirects
 
     f = open(file, 'r')
 
@@ -100,7 +101,7 @@ def parse_csv(file):
         if category == 'SUPERBLOCK':
             sb = SuperBlock(row)
         elif category == 'GROUP':
-            pass
+            reserved_blocks_end = int(row[8])
         elif category == 'BFREE':
             free_blocks.append(int(row[1]))
         elif category == 'IFREE':
@@ -165,97 +166,90 @@ def parse_csv(file):
 #check if block is valid, and then add it to our pointer_counter tracking structure
 def valid_block_check(level, blocknum, inode, offset):
     if blocknum == 0:
-        return
+        pass
     elif blocknum > sb.n_blocks - 1 or blocknum < 0:
         print("INVALID {}BLOCK {} IN INODE {} AT OFFSET {}".format(level, blocknum, inode, offset))
-    elif blocknum < sb.first_inode:
+    elif blocknum < reserved_blocks_end:
         print("RESERVED {}BLOCK {} IN INODE {} AT OFFSET {}".format(level, blocknum, inode, offset))
     else:
-        #Valid block, log it. Don't do anything if pointing to inode. Otherwise, add a pointer entry
-        if blocknum < sb.n_inodes + 1:
-            return
+        #Valid block, so log it
         if pointer_counter[blocknum] == -1:
-            pointer_counter[blocknum] = [[inode,level,offset]]
+            pointer_counter[blocknum] = [[level,inode,offset]]
         else:
-            pointer_counter[blocknum].append([inode,level,offset])
+            pointer_counter[blocknum].append([level,inode,offset])
 
-def audit_summary():
+def audit_blocks():
     #Tracks all pointers to each block. eg. pointers to block 76 stored in pointer_counter[76]
     #Value: -1 if no pointer, a list of lists otherwise, where each list stores:
-    #[inode with pointer, indirection level of that inode, offset of the block]
-    #For inodes, just stores its file type
+    #[indirection level of inode with that pointer, inode with that pointer, offset of the block]
     global pointer_counter
     pointer_counter = [-1]*sb.n_blocks
+    global inode
     
-    #check direct blocks. Also add inode allocation to pointer_counter
+    
+    #check direct blocks
     for inode in inodes:
         for blocknum in inode.blocks:
             valid_block_check(level_string[0], blocknum, inode.inode_no, 0)
         valid_block_check(level_string[1],inode.single_ind, inode.inode_no, 12)
         valid_block_check(level_string[2],inode.double_ind, inode.inode_no, 268)
         valid_block_check(level_string[3],inode.triple_ind, inode.inode_no, 65804)
-        pointer_counter[inode.inode_no] = inode.file_type
     
     #check indirect blocks
     for indirect in indirects:
         valid_block_check(level_string[indirect.level], indirect.reference_no, indirect.inode_no, indirect.offset)
-    
+        
     #add free blocks and inodes while checking for allocated free blocks
     for free_block in free_blocks:
         if(pointer_counter[free_block] == -1):
             pointer_counter[free_block] = 0
         else:
-            for item in pointer_counter[free_block]:
-                print("ALLOCATED BLOCK {} ON FREELIST".format(item[0]))
+            print("ALLOCATED BLOCK {} ON FREELIST".format(free_block))
                 
-    #add free inodes to list while checking for allocated free inodes
-    for inodenum in free_inodes:
-        if(pointer_counter[inodenum] == -1):
-            pointer_counter[inodenum] = 0
-        else:
-            print("ALLOCATED INODE {} ON FREELIST".format(inodenum))
-    
-    #check for unreferenced and duplicate blocks, and unallocated inodes
+    #check for unreferenced and duplicate blocks
     #could be optimized
     for blocknum,blockentries in enumerate(pointer_counter):
-        #inodes
-        if(blocknum < sb.n_inodes + 1 and blocknum > sb.first_inode - 1 and blockentries == -1):
-            print("UNALLOCATED INODE {} NOT ON FREELIST".format(blocknum))
         #skip if 1) block is correctly free 2) this is a reserved inode
-        elif(blockentries == 0 or blocknum < sb.first_inode):
-            continue
+        if(blockentries == 0):
+            pass
+        elif(blockentries == -1 and blocknum < sb.n_inodes  + 1):
+            pass
         #blocks
         elif(blockentries == -1):
             print("UNREFERENCED BLOCK {}".format(blocknum))
         elif len(blockentries) > 1:
             for item in blockentries:
-                print("DUPLICATE {}BLOCK {} IN INODE {} AT OFFSET {}".format(item[0], pointer_counter.index(pointer_counter[blocknum]), item[2], item[2]))
+                print("DUPLICATE {}BLOCK {} IN INODE {} AT OFFSET {}".format(item[0], pointer_counter.index(pointer_counter[blocknum]), item[1], item[2]))
     
-# #Audit inodes
-# def audit_inodes():
-    # global errors, inodes, allocated_inodes, unallocated_inode_nos
+#Audit inodes
+def audit_inodes():
+    global inodes, allocated_inodes, unallocated_inode_nos
 
-    # unallocated_inode_nos = free_inodes
+    unallocated_inode_nos = free_inodes
 
-    # for inode in inodes:
-        # if inode.file_type == '0':
-            # print("UNALLOCATED INODE {} NOT ON FREELIST".format(inode.inode_no))
-            # errors = errors + 1
-            # unallocated_inode_nos.append(inode.inode_no)
-        # else:
-            # if inode.inode_no in free_inodes:
-                # print("ALLOCATED INODE {} ON FREELIST".format(inode.inode_no))
-                # errors = errors + 1
-                # unallocated_inode_nos.remove(inode.inode_no)
+    #Appending inodes to allocated_inodes list. Error if on freelist
+    for inode in inodes:
+        #First if statement for redundancy
+        if inode.file_type == '0':
+            if inode.inode_no not in free_inodes:
+                print("UNALLOCATED INODE {} NOT ON FREELIST".format(inode.inode_no))
+                #errors = errors + 1
+                unallocated_inode_nos.append(inode.inode_no)
+        else:
+            if inode.inode_no in free_inodes:
+                print("ALLOCATED INODE {} ON FREELIST".format(inode.inode_no))
+                #errors = errors + 1
+                unallocated_inode_nos.remove(inode.inode_no)
 
-            # allocated_inodes.append(inode)
+            allocated_inodes.append(inode)
 
-    # for inode in range(sb.first_inode, sb.n_inode):
-        # used = True if len(list(filter(lambda x: x.inode_no == inode, inodes))) > 0 else False
-        # if inode not in free_inodes and not used:
-            # print("UNALLOCATED INODE {} NOT ON FREELIST".format(inode))
-            # errors = errors + 1
-            # unallocated_inode_nos.append(inode)
+    #Check all inodes if free/allocated or unallocated
+    for inode in range(sb.first_inode, sb.n_inodes):
+        used = True if len(list(filter(lambda x: x.inode_no == inode, inodes))) > 0 else False
+        if inode not in free_inodes and not used:
+            print("UNALLOCATED INODE {} NOT ON FREELIST".format(inode))
+            #errors = errors + 1
+            unallocated_inode_nos.append(inode)
 
 
 # #Check links function
@@ -321,10 +315,10 @@ if __name__ == '__main__':
     #Parse file
     parse_csv(filename)
 
-    # audit_blocks()
-    # audit_inodes()
+    audit_blocks()
+    audit_inodes()
     # audit_dirents()
-    audit_summary()
+    
     
     exit(2) if errors != 0 else exit(0)
             
